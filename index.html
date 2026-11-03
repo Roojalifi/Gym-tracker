@@ -63,9 +63,20 @@ let S;
 try{S=JSON.parse(localStorage.getItem(KEY)||"null")}catch(e){S=null}
 if(!S)S={lib:JSON.parse(JSON.stringify(LIB0)),history:[],active:null,draft:null};
 let mem=false;
+let wakeLock = null;
+async function keepScreenOn(){
+ try{
+  if("wakeLock" in navigator){
+   if(!document.hidden) wakeLock = await navigator.wakeLock.request("screen");
+  }
+ }catch(e){}
+}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)keepScreenOn();});
+window.addEventListener("pageshow",()=>keepScreenOn());
+
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){mem=true}}
 (function(){const n="Tirón de hombros en polea";for(const g in S.lib)if(g!=="Hombros")S.lib[g]=S.lib[g].filter(x=>x!==n);if(!S.lib.Hombros.includes(n))S.lib.Hombros.push(n);if(!S.lib.Abdominales)S.lib.Abdominales=LIB0.Abdominales.slice();const fx=e=>{if(e.name===n)e.group="Hombros"};S.history.forEach(h=>h.exercises.forEach(fx));if(S.active)S.active.exercises.forEach(fx);if(S.draft&&S.draft["Tríceps"])S.draft["Tríceps"]=S.draft["Tríceps"].filter(x=>x!==n);save()})();
-let view="home",day=(new Date().getDay()>=1&&new Date().getDay()<=5)?new Date().getDay():1,step=null,openId=null,cf=null,justDone=null,rest=null,rex=null,edit=null;
+let restDuration=60,lastBeep=0;let view="home",day=(new Date().getDay()>=1&&new Date().getDay()<=5)?new Date().getDay():1,step=null,openId=null,cf=null,justDone=null,rest=null,rex=null,edit=null;
 const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=ms=>{let s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60);s%=60;return(h?h+":":"")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")};
 const nf=n=>Math.round(n).toLocaleString("es-AR");
@@ -78,10 +89,10 @@ function bestOf(name){let b=null;S.history.forEach(h=>h.exercises.forEach(e=>{if
 const fs=s=>nf(num(s.kg)*10)/10===0?"":(num(s.kg)+" kg × "+num(s.reps));
 function setsTxt(ss){return ss.map(s=>num(s.kg)+"×"+num(s.reps)).join(" / ")}
 
-function nav(){const t=[["home","Hoy"],["hist","Historial"],["rec","Récords"],["data","Copia"]];$("#nav").innerHTML=t.map(([k,l])=>`<button data-a="nav" data-v="${k}" class="${view===k?"on":""}">${l}</button>`).join("")}
-function render(){nav();const a=$("#app");
+function nav(){const t=[["home","Hoy"],["hist","Historial"],["rec","Récords"],["lib","Ejercicios"],["data","Copia"]];$("#nav").innerHTML=t.map(([k,l])=>`<button data-a="nav" data-v="${k}" class="${view===k?"on":""}">${l}</button>`).join("")}
+function render(){nav();const a=$("#app");if(S.active)keepScreenOn();
  if(view==="home")a.innerHTML=S.active?workout():step==="select"?select():step==="order"?order():home();
- else if(view==="hist")a.innerHTML=hist();else if(view==="data")a.innerHTML=data();else a.innerHTML=records();
+ else if(view==="hist")a.innerHTML=hist();else if(view==="data")a.innerHTML=data();else if(view==="lib")a.innerHTML=library();else a.innerHTML=records();
  if(mem)a.insertAdjacentHTML("afterbegin",'<p class="rec">Ojo: este navegador no deja guardar datos. Lo que cargues se pierde al cerrar.</p>')}
 
 function home(){const[n,g]=DAYS[day];
@@ -126,11 +137,11 @@ document.addEventListener("click",ev=>{const t=ev.target.closest("[data-a]");if(
  else if(a==="startsel"){step="select";S.draft={}}
  else if(a==="cancel"||a==="backsel"){step=a==="cancel"?null:"select"}
  else if(a==="pick")return;
- else if(a==="exp"){$("#bk").value=JSON.stringify({lib:S.lib,history:S.history});return}
+ else if(a==="librename"){const g=D.g,old=D.n;const val=prompt("Nuevo nombre para el ejercicio:",old);if(val&&val.trim()&&val.trim()!==old){const nn=val.trim();if(S.lib[g].includes(nn)){alert("Ya existe un ejercicio con ese nombre en este grupo.");return;}S.lib[g]=S.lib[g].map(x=>x===old?nn:x);S.history.forEach(h=>h.exercises.forEach(e=>{if(e.group===g&&e.name===old)e.name=nn}));if(S.active)S.active.exercises.forEach(e=>{if(e.group===g&&e.name===old)e.name=nn});save();} }\n else if(a==="libdelete"){const g=D.g,n=D.n;if(confirm("¿Eliminar \\""+n+"\\" de la biblioteca? Los entrenamientos anteriores no se borran.")){S.lib[g]=S.lib[g].filter(x=>x!==n);save();}}\n else if(a==="libadd"){const g=D.g,el=$("#libnew-"+g),v=el.value.trim();if(v&&!S.lib[g].includes(v)){S.lib[g].push(v);save();}}\n else if(a==="exp"){$("#bk").value=JSON.stringify({lib:S.lib,history:S.history});return}
  else if(a==="cp"){const b=$("#bk");if(!b.value)b.value=JSON.stringify({lib:S.lib,history:S.history});b.select();try{navigator.clipboard.writeText(b.value)}catch(x){try{document.execCommand("copy")}catch(y){}}$("#bm").textContent="Copiado.";return}
  else if(a==="imp"){try{const o=JSON.parse($("#bk").value);if(!Array.isArray(o.history))throw 0;S.history=o.history;if(o.lib)S.lib=o.lib;save();$("#bm").textContent="Restaurado: "+o.history.length+" entrenamientos."}catch(x){$("#bm").textContent="Ese texto no parece una copia válida."}return}
  else if(a==="uselast"){const e=S.active.exercises[+D.i],L=lastOf(e.name);if(L)e.sets=L.sets.map(x=>({kg:String(num(x.kg)),reps:String(num(x.reps)),rt:true}));save()}
- else if(a==="rst")rest=+D.v?Date.now()+D.v*1000:null;
+ else if(a==="rst"){if(+D.v){restDuration=+D.v;rest=null;}else rest=null;lastBeep=0;}\n else if(a==="reststart"){rest=Date.now()+restDuration*1000;lastBeep=0;try{keepScreenOn()}catch(e){}}
  else if(a==="rex")rex=D.n;
  else if(a==="rback")rex=null;
  else if(a==="emenu")edit={m:"menu",i:+D.i};
@@ -171,7 +182,8 @@ document.addEventListener("input",ev=>{const t=ev.target;const A=t.dataset.a;if(
  if(f==="kg"){if(j===0)e.sets.forEach((x,k)=>{if(k>0&&(x.auto||!x.kg)){x.kg=t.value;x.auto=true;const el=document.querySelector(`[data-i="${i}"][data-j="${k}"][data-f="kg"]`);if(el)el.value=t.value}});else e.sets[j].auto=false}
  const pg=document.getElementById("pg"+i);if(pg)pg.textContent=prog(e);
  save()});
-setInterval(()=>{if(S.active&&view==="home"&&!step){const e=$("#tm");if(e)e.textContent=fmt(elapsed(S.active));if(rest){const r=$("#rs"),l=rest-Date.now();if(l<=0){rest=null;if(r)r.textContent="¡Descanso listo!";try{navigator.vibrate(300)}catch(x){}}else if(r)r.textContent="Descanso "+fmt(l)}}},500);
+setInterval(()=>{if(S.active&&view==="home"&&!step){const e=$("#tm");if(e)e.textContent=fmt(elapsed(S.active));if(rest){const r=$("#rs"),l=rest-Date.now();if(l<=0){rest=null;if(r)r.textContent="Descanso "+restDuration+" s";}else{const sec=Math.ceil(l/1000);if(sec<=3&&sec>0&&lastBeep!==sec){lastBeep=sec;beep();}if(r)r.textContent="Descanso "+fmt(l)}}}},500);
+function beep(){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C(),o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=880;g.gain.setValueAtTime(.0001,c.currentTime);g.gain.exponentialRampToValueAtTime(.18,c.currentTime+.015);g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+.22);o.start();o.stop(c.currentTime+.23);o.onended=()=>c.close()}catch(e){}}
 function mk(n){return Array.from({length:3},()=>({kg:"",reps:"8"}))}
 function e1(s){return num(s.kg)*(1+num(s.reps)/30)}
 function prog(e){const ss=e.sets.filter(s=>num(s.kg)>0);if(!ss.length)return"";const t=ss.reduce((m,s)=>e1(s)>e1(m)?s:m),L=lastOf(e.name),B=bestOf(e.name);
@@ -189,8 +201,8 @@ function epanel(i){if(!edit||edit.i!==i)return"";const e=S.active.exercises[i],u
 function apanel(){if(!edit||edit.m!=="add")return `<button style="width:100%;margin:6px 0" data-a="eadd">+ Agregar ejercicio</button>`;
  const used=S.active.exercises.map(x=>x.name),g=edit.g;
  return `<div class="card" style="border-color:var(--ac)"><b>Agregar ejercicio</b><div class="chips">${Object.keys(S.lib).map(k=>`<button class="chip sm ${g===k?"on":""}" data-a="eaddg" data-g="${k}">${k}</button>`).join("")}</div>${g?`<div>${S.lib[g].filter(n=>!used.includes(n)).map(n=>`<button class="sm" style="margin:2px" data-a="eaddpick" data-n="${esc(n)}">${esc(n)}</button>`).join("")}</div><div class="row" style="margin-top:6px"><input id="newx" placeholder="Ejercicio nuevo de ${g.toLowerCase()}" style="flex:1;min-width:0;font:inherit;font-size:14px;padding:4px 8px;border-radius:8px;border:1px solid var(--ln);background:var(--bg);color:var(--tx)"><button class="sm" data-a="eaddnew">Agregar</button></div>`:"<p>Elegí un grupo.</p>"}<button class="sm" data-a="eclose" style="margin-top:6px">Cancelar</button></div>`}
-function restRow(){return `<div class="row" style="margin-top:6px">${rest?`<b id="rs" class="rec">Descanso ${fmt(Math.max(0,rest-Date.now()))}</b><button class="sm" data-a="rst" data-v="0">✕</button>`:`<span class="tag">Descanso:</span>${[60,90,120].map(v=>`<button class="sm" data-a="rst" data-v="${v}">${v}s</button>`).join("")}`}</div>`}
-function data(){return `<h1>Copia de seguridad</h1><p>Generá la copia, copiala y guardala en tus notas o mandátela por mail. Si algún día perdés los datos, la pegás acá y la restaurás.</p>
+function restRow(){return `<div class="row" style="margin-top:6px"><span class="tag">Descanso:</span>${[60,90,120].map(v=>`<button class="sm ${restDuration===v?"chip on":""}" data-a="rst" data-v="${v}">${v}s</button>`).join("")}${rest?`<b id="rs" class="rec">${fmt(Math.max(0,rest-Date.now()))}</b><button class="sm" data-a="rst" data-v="0">Parar</button>`:`<button class="sm" data-a="reststart">▶</button>`}</div>`}
+function library(){return `<h1>Biblioteca de ejercicios</h1><p>Podés corregir nombres o eliminar ejercicios que agregaste por error. El historial ya guardado no se borra.</p>`+Object.keys(S.lib).map(g=>`<div class="card" style="border-left:5px solid ${gc(g)}"><h2>${g}</h2>${S.lib[g].map(n=>`<div class="row" style="padding:5px 0;border-bottom:1px solid var(--ln)"><span style="flex:1">${esc(n)}</span><button class="sm" data-a="librename" data-g="${g}" data-n="${esc(n)}">Editar</button><button class="sm" data-a="libdelete" data-g="${g}" data-n="${esc(n)}">Eliminar</button></div>`).join("")}<div class="row" style="margin-top:8px"><input id="libnew-${g}" placeholder="Agregar ejercicio" style="flex:1;min-width:0;font:inherit;padding:7px;border-radius:8px;border:1px solid var(--ln);background:var(--bg);color:var(--tx)"><button class="sm" data-a="libadd" data-g="${g}">Agregar</button></div></div>`).join("")}`;}\nfunction data(){return `<h1>Copia de seguridad</h1><p>Generá la copia, copiala y guardala en tus notas o mandátela por mail. Si algún día perdés los datos, la pegás acá y la restaurás.</p>
 <div class="row" style="margin-top:8px"><button class="sm" data-a="exp">Generar copia</button><button class="sm" data-a="cp">Copiar</button></div>
 <textarea id="bk" rows="8" style="width:100%;margin-top:8px;font:14px monospace;background:var(--sf);color:var(--tx);border:1px solid var(--ln);border-radius:8px;padding:8px" placeholder="Acá aparece la copia, o pegá una para restaurar"></textarea>
 <button class="sm" data-a="imp" style="margin-top:8px">Restaurar desde este texto</button><p id="bm" class="rec"></p>`}
